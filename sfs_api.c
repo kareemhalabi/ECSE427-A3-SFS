@@ -52,7 +52,7 @@ superblock_t * superBlock; // Keep this block in RAM
 
 inode_t inodes[74];// Useful to have quick access to iNodes as well (array size must be same value as NUM_INODES)
 
-fd_table_entry_t * openFD[32]; // Max of 32 files open at once
+fd_table_entry_t openFD[32]; // Max of 32 files open at once
 
 /**
  * Gets a shadow File system partition. Also initializes the open file descriptor table
@@ -116,7 +116,7 @@ void mkssfs(int fresh){
  */
 short allocate_block() {
 
-    short blockIndex = (short) (SUPERBLOCK_NO + 1);
+    short blockIndex = (short) (SUPERBLOCK_NO + 1 + superBlock->magicValue);
     while( read_FBM(blockIndex) != 1 && blockIndex < MY_NUM_BLOCKS)
         blockIndex++;
 
@@ -210,6 +210,10 @@ short free_iNode(short inodeNo) {
             }
             else break;
         }
+
+        // Clear the block pointer
+        currentINode->blockPtrs[blockPtrIndex] = -1;
+        blockPtrIndex++;
     }
 
     // Update iNode file
@@ -294,7 +298,7 @@ int ssfs_fopen(char *name){
     int openFDIndex = 0;
     int numFDEntries = sizeof(openFD)/sizeof(openFD[0]);
     while(openFDIndex < numFDEntries) {
-        if(openFD[openFDIndex]->inodeNo == superBlock->files[dTableIndex].iNodeNo)
+        if(openFD[openFDIndex].inodeNo == superBlock->files[dTableIndex].iNodeNo)
             return openFDIndex;
 
         openFDIndex++;
@@ -302,7 +306,7 @@ int ssfs_fopen(char *name){
 
     // Otherwise search for first free entry in openFD
     openFDIndex = 0;
-    while(openFD[0]->inodeNo != -1 && openFDIndex < numFDEntries)
+    while(openFD[openFDIndex].inodeNo != -1 && openFDIndex < numFDEntries)
         openFDIndex++;
 
     // Return -1 if no more available entries
@@ -311,9 +315,9 @@ int ssfs_fopen(char *name){
     }
 
     // Set the inodeNo and pointers
-    openFD[openFDIndex]->inodeNo = superBlock->files[dTableIndex].iNodeNo;
-    openFD[openFDIndex]->readPtr = 0;
-    openFD[openFDIndex]->writePtr = inodes[openFD[openFDIndex]->inodeNo].size;
+    openFD[openFDIndex].inodeNo = superBlock->files[dTableIndex].iNodeNo;
+    openFD[openFDIndex].readPtr = 0;
+    openFD[openFDIndex].writePtr = inodes[openFD[openFDIndex].inodeNo].size;
 
     return openFDIndex;
 }
@@ -321,7 +325,7 @@ int ssfs_fopen(char *name){
 /**
  * Remove an entry from the open file descriptor table
  * @param fileID the index to remove
- * @return 0 on success, -1 on failure
+ * @return 0 on success, -1 on index out of bounds, -2 if fileID points to an empty slot
  */
 int ssfs_fclose(int fileID){
 
@@ -329,8 +333,14 @@ int ssfs_fclose(int fileID){
     if(fileID < 0 || fileID >= sizeof(openFD)/ sizeof(openFD[0]))
         return -1;
 
-    // Remove entry by setting inodeNo to -1;
-    openFD[fileID]->inodeNo = -1;
+    // Check if fileID points to an empty location
+    if(openFD[fileID].inodeNo == -1)
+        return -2;
+
+    // Remove entry by setting params to -1
+    openFD[fileID].inodeNo = -1;
+    openFD[fileID].readPtr = -1;
+    openFD[fileID].writePtr = -1;
 
     return 0;
 }
@@ -344,14 +354,14 @@ int ssfs_fclose(int fileID){
 int ssfs_frseek(int fileID, int loc){
 
     // Check if fileID is in bounds and valid
-    if(fileID < 0 || fileID >= sizeof(openFD)/ sizeof(openFD[0]) || openFD[fileID]->inodeNo == -1)
+    if(fileID < 0 || fileID >= sizeof(openFD)/ sizeof(openFD[0]) || openFD[fileID].inodeNo == -1)
         return -1;
 
     // Check if location is valid
-    if(loc < 0 || loc >= inodes[openFD[fileID]->inodeNo].size)
+    if(loc < 0 || loc >= inodes[openFD[fileID].inodeNo].size)
         return -1;
 
-    openFD[fileID]->readPtr = (short) loc;
+    openFD[fileID].readPtr = (short) loc;
 
     return 0;
 }
@@ -365,14 +375,14 @@ int ssfs_frseek(int fileID, int loc){
 int ssfs_fwseek(int fileID, int loc){
 
     // Check if fileID is in bounds and valid
-    if(fileID < 0 || fileID >= sizeof(openFD)/ sizeof(openFD[0]) || openFD[fileID]->inodeNo == -1)
+    if(fileID < 0 || fileID >= sizeof(openFD)/ sizeof(openFD[0]) || openFD[fileID].inodeNo == -1)
         return -1;
 
     // Check if location is valid
-    if(loc < 0 || loc > inodes[openFD[fileID]->inodeNo].size) // Note loc can be one byte after end of file
+    if(loc < 0 || loc > inodes[openFD[fileID].inodeNo].size) // Note loc can be max one byte after end of file
         return -1;
 
-    openFD[fileID]->writePtr = (short) loc;
+    openFD[fileID].writePtr = (short) loc;
 
     return 0;
 }
@@ -380,16 +390,16 @@ int ssfs_fwseek(int fileID, int loc){
 int ssfs_fwrite(int fileID, char *buf, int length){
 
     // Check if fileID is in bounds and valid
-    if(fileID < 0 || fileID >= sizeof(openFD)/ sizeof(openFD[0]) || openFD[fileID]->inodeNo == -1)
+    if(fileID < 0 || fileID >= sizeof(openFD)/ sizeof(openFD[0]) || openFD[fileID].inodeNo == -1)
         return -1;
 
     // Check if buf pointer not null and length is positive
     if(buf == NULL || length < 0)
         return -1;
 
-    inode_t * directINode = &inodes[openFD[fileID]->inodeNo];
+    inode_t * directINode = &inodes[openFD[fileID].inodeNo];
     short fileSize = directINode->size;
-    short writePtr = openFD[fileID]->writePtr;
+    short writePtr = openFD[fileID].writePtr;
 
     // Check if length is too large, else truncate
     if(length + writePtr > MAX_FILESIZE)
@@ -435,6 +445,7 @@ int ssfs_fwrite(int fileID, char *buf, int length){
             bytesLeftInBlock = bytesLeft;
         }
 
+        // Copy from buffer to block
         memcpy(blockRead + (writePtr % MY_BLOCK_SIZE), buf, bytesLeftInBlock);
 
         write_blocks(currentINode->blockPtrs[i], 1, blockRead);
@@ -508,11 +519,11 @@ int ssfs_fwrite(int fileID, char *buf, int length){
     free(blockRead);
 
     // Save write pointer
-    openFD[fileID]->writePtr = writePtr;
+    openFD[fileID].writePtr = writePtr;
 
     // Update file size if neccesary
-    if(openFD[fileID]->writePtr > fileSize)
-        directINode->size = openFD[fileID]->writePtr;
+    if(openFD[fileID].writePtr > fileSize)
+        directINode->size = openFD[fileID].writePtr;
 
     return length;
 }
@@ -520,16 +531,16 @@ int ssfs_fwrite(int fileID, char *buf, int length){
 int ssfs_fread(int fileID, char *buf, int length){
 
     // Check if fileID is in bounds and valid
-    if(fileID < 0 || fileID >= sizeof(openFD)/ sizeof(openFD[0]) || openFD[fileID]->inodeNo == -1)
+    if(fileID < 0 || fileID >= sizeof(openFD)/ sizeof(openFD[0]) || openFD[fileID].inodeNo == -1)
         return -1;
 
     // Check if buf pointer not null and length is positive
     if(buf == NULL || length < 0)
         return -1;
 
-    inode_t * directINode = &inodes[openFD[fileID]->inodeNo];
+    inode_t * directINode = &inodes[openFD[fileID].inodeNo];
     short fileSize = directINode->size;
-    short readPtr = openFD[fileID]->readPtr;
+    short readPtr = openFD[fileID].readPtr;
 
     // Check if length is too large, else truncate
     if(length + readPtr > MAX_FILESIZE)
@@ -541,7 +552,6 @@ int ssfs_fread(int fileID, char *buf, int length){
     short startBlockPtr = readPtr / MY_BLOCK_SIZE;
 
     if(startBlockPtr >= NUM_DIRECT_PTRS) {
-        //startIndirect = 1;
         currentINode = &inodes[directINode->indirectPtr];
         startBlockPtr -= NUM_DIRECT_PTRS;
     }
@@ -564,6 +574,9 @@ int ssfs_fread(int fileID, char *buf, int length){
             bytesLeftInBlock = bytesLeft;
         }
 
+        // Copy from block to buffer
+        memcpy(buf, blockRead + (readPtr % MY_BLOCK_SIZE), bytesLeftInBlock);
+
         // Move along buffer, decrease remaining length and update read pointer
         buf += bytesLeftInBlock;
         bytesLeft -= bytesLeftInBlock;
@@ -580,7 +593,7 @@ int ssfs_fread(int fileID, char *buf, int length){
     free(blockRead);
     
     // Save read pointer
-    openFD[fileID]->readPtr = readPtr;
+    openFD[fileID].readPtr = readPtr;
     
     return length;
 }
@@ -611,8 +624,22 @@ int ssfs_remove(char *file){
     if(dTableIndex >= numFileEntries)
         return -1;
 
+    // Close file first if it is open
+    int openFDIndex = 0;
+    int numFDEntries = sizeof(openFD)/sizeof(openFD[0]);
+    while(openFDIndex < numFDEntries) {
+        if(openFD[openFDIndex].inodeNo == superBlock->files[dTableIndex].iNodeNo) {
+            ssfs_fclose(openFDIndex);
+            break;
+        }
+        openFDIndex++;
+    }
+
     // Get i-node and start freeing up blocks
     free_iNode(superBlock->files[dTableIndex].iNodeNo);
+
+    // Free entry in directory table
+    memset(&superBlock->files[dTableIndex], -1, sizeof(d_entry_t));
 
     return 0;
 }
@@ -634,7 +661,7 @@ int read_FBM(int index) {
     int selectedInt = superBlock->fbm[intNo];
     int bitNo = index % 32;
 
-    return selectedInt & (1 << bitNo);
+    return (selectedInt >> bitNo) & 1;
 }
 
 /**
@@ -661,3 +688,14 @@ int write_FBM(int index, int value) {
 
     return 0;
 }
+//
+//int main() {
+//
+//    mkssfs(1);
+//
+//    write_FBM(62, 1);
+//    write_FBM(62, 0);
+//    write_FBM(62, 0);
+//    write_FBM(62, 1);
+//    return 0;
+//}
