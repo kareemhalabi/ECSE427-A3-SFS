@@ -255,6 +255,9 @@ short ssfs_fcreate(char *name) {
     // Update superblock
     write_blocks(SUPERBLOCK_NO, 1, superBlock);
 
+    // Update i-nodes file
+    write_blocks(SUPERBLOCK_NO + 1, superBlock->magicValue, inodes);
+
     return dTableIndex;
 }
 
@@ -429,6 +432,9 @@ int ssfs_fwrite(int fileID, char *buf, int length){
         //Allocate block if neccesary
         if(currentINode->blockPtrs[i] == -1) {
             currentINode->blockPtrs[i] = allocate_block();
+
+            // Save i-node file
+            write_blocks(SUPERBLOCK_NO + 1, superBlock->magicValue, inodes);
 
             //Error
             if(currentINode->blockPtrs[i] < 0)
@@ -641,6 +647,9 @@ int ssfs_remove(char *file){
     // Free entry in directory table
     memset(&superBlock->files[dTableIndex], -1, sizeof(d_entry_t));
 
+    // Update superblock
+    write_blocks(SUPERBLOCK_NO, 1, superBlock);
+
     return 0;
 }
 
@@ -685,6 +694,9 @@ int write_FBM(int index, int value) {
 
     // Obtained from http://stackoverflow.com/questions/47981/how-do-you-set-clear-and-toggle-a-single-bit-in-c-c
     *selectedInt ^= (-value ^ *selectedInt) & (1 << bitNo);
+
+    // Update superblock
+    write_blocks(SUPERBLOCK_NO, 1, superBlock);
 
     return 0;
 }
