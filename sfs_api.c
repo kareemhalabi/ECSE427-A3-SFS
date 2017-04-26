@@ -469,58 +469,6 @@ int ssfs_fwrite(int fileID, char *buf, int length){
         }
 
     }
-    /*
-    if(!startIndirect) {
-        // Start writing to direct first
-        while(bytesLeft > 0 && i < NUM_DIRECT_PTRS) {
-
-            //Allocate block if neccesary
-            if(directINode->blockPtrs[i] == -1) {
-                directINode->blockPtrs[i] = allocate_block();
-
-                //Error
-                if(directINode->blockPtrs[i] < 0)
-                    return -1;
-            }
-
-            write_blocks(directINode->blockPtrs[i], 1, buf);
-
-            // Move along buffer and decrease remaining length
-            buf += MY_BLOCK_SIZE;
-            bytesLeft -= MY_BLOCK_SIZE;
-            i++;
-        }
-
-        // Start writing to indirect if bytes remain
-        if(bytesLeft > 0) {
-            startIndirect = 1;
-            i = 0;
-        }
-    }
-
-    if(startIndirect) {
-        // Write straight to indirect node
-        inode_t * indirectINode = &inodes[directINode->indirectPtr];
-        while(bytesLeft > 0) {
-
-            // Allocate block if neccesary
-            if(indirectINode->blockPtrs[i] == -1) {
-                indirectINode->blockPtrs[i] = allocate_block();
-
-                //Error
-                if(directINode->blockPtrs[i] < 0)
-                    return -1;
-            }
-
-            write_blocks(indirectINode->blockPtrs[i], 1, buf);
-
-            // Move along buffer and decrease remaining length
-            buf += MY_BLOCK_SIZE;
-            bytesLeft -= MY_BLOCK_SIZE;
-            i++;
-        }
-    }
-     */
 
     free(blockRead);
 
@@ -700,14 +648,3 @@ int write_FBM(int index, int value) {
 
     return 0;
 }
-//
-//int main() {
-//
-//    mkssfs(1);
-//
-//    write_FBM(62, 1);
-//    write_FBM(62, 0);
-//    write_FBM(62, 0);
-//    write_FBM(62, 1);
-//    return 0;
-//}
